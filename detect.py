@@ -31,6 +31,7 @@ def main(_argv):
     else:
         yolo = YoloV3(classes=FLAGS.num_classes)
 
+    # expect_partial 忽略优化器相关节点
     yolo.load_weights(FLAGS.weights).expect_partial()
     logging.info('weights loaded')
 

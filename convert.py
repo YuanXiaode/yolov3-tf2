@@ -5,6 +5,9 @@ from yolov3_tf2.models import YoloV3, YoloV3Tiny
 from yolov3_tf2.utils import load_darknet_weights
 import tensorflow as tf
 
+import os
+os.environ["CUDA_VISIBLE_DEVICES"]="-1"
+
 flags.DEFINE_string('weights', './data/yolov3.weights', 'path to weights file')
 flags.DEFINE_string('output', './checkpoints/yolov3.tf', 'path to output')
 flags.DEFINE_boolean('tiny', False, 'yolov3 or yolov3-tiny')
@@ -25,6 +28,7 @@ def main(_argv):
     load_darknet_weights(yolo, FLAGS.weights, FLAGS.tiny)
     logging.info('weights loaded')
 
+    ## 需要跑一下模型才可以保存
     img = np.random.random((1, 320, 320, 3)).astype(np.float32)
     output = yolo(img)
     logging.info('sanity check passed')

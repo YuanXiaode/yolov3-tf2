@@ -3,6 +3,7 @@ import numpy as np
 import tensorflow as tf
 import cv2
 
+## 对应models.py看，这些是定义的子模型名称
 YOLOV3_LAYER_LIST = [
     'yolo_darknet',
     'yolo_conv_0',
@@ -34,9 +35,10 @@ def load_darknet_weights(model, weights_file, tiny=False):
     for layer_name in layers:
         sub_model = model.get_layer(layer_name)
         for i, layer in enumerate(sub_model.layers):
-            if not layer.name.startswith('conv2d'):
+            if not layer.name.startswith('conv2d'):    ## 滤过激活函数等无参数层
                 continue
             batch_norm = None
+            ## 判断该conv2d后是否有BN层
             if i + 1 < len(sub_model.layers) and \
                     sub_model.layers[i + 1].name.startswith('batch_norm'):
                 batch_norm = sub_model.layers[i + 1]
@@ -44,6 +46,7 @@ def load_darknet_weights(model, weights_file, tiny=False):
             logging.info("{}/{} {}".format(
                 sub_model.name, layer.name, 'bn' if batch_norm else 'bias'))
 
+            ## 下面跟YunYang代码一样
             filters = layer.filters
             size = layer.kernel_size[0]
             in_dim = layer.get_input_shape_at(0)[-1]
