@@ -5,8 +5,8 @@ from yolov3_tf2.models import YoloV3, YoloV3Tiny
 from yolov3_tf2.utils import load_darknet_weights
 import tensorflow as tf
 
-import os
-os.environ["CUDA_VISIBLE_DEVICES"]="-1"
+# import os
+# os.environ["CUDA_VISIBLE_DEVICES"]="-1"
 
 flags.DEFINE_string('weights', './data/yolov3.weights', 'path to weights file')
 flags.DEFINE_string('output', './checkpoints/yolov3.tf', 'path to output')
