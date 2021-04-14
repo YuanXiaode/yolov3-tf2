@@ -83,6 +83,8 @@ def broadcast_iou(box_1, box_2):
     box_1 = tf.expand_dims(box_1, -2)
     box_2 = tf.expand_dims(box_2, 0)
     # new_shape: (..., N, (x1, y1, x2, y2))
+
+    # 应该用不着，tensorflow会自动进行广播计算
     new_shape = tf.broadcast_dynamic_shape(tf.shape(box_1), tf.shape(box_2))
     box_1 = tf.broadcast_to(box_1, new_shape)
     box_2 = tf.broadcast_to(box_2, new_shape)
