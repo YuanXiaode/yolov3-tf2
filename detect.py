@@ -42,12 +42,12 @@ def main(_argv):
         dataset = load_tfrecord_dataset(
             FLAGS.tfrecord, FLAGS.classes, FLAGS.size)
         dataset = dataset.shuffle(512)
-        img_raw, _label = next(iter(dataset.take(1)))
+        img_raw, _label = next(iter(dataset.take(1)))  ## img_raw其实已经resize过了
     else:
         img_raw = tf.image.decode_image(
             open(FLAGS.image, 'rb').read(), channels=3)  ## unit8  RGB
     img = tf.expand_dims(img_raw, 0)
-    img = transform_images(img, FLAGS.size)
+    img = transform_images(img, FLAGS.size)  ## resize + 化成浮点数
 
     t1 = time.time()
     # 注意这里包含了前向推理、解码和nms过程，其中坐标(x1,y1,x2,y2)是相对于原图的归一化坐标

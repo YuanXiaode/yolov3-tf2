@@ -120,10 +120,18 @@ def parse_tfrecord(tfrecord, class_table, size):
 
 def load_tfrecord_dataset(file_pattern, class_file, size=416):
     LINE_NUMBER = -1  # TODO: use tf.lookup.TextFileIndex.LINE_NUMBER
+    ## tf.lookup.TextFileInitializer 用法：
+    ## class_file 表示读取的文件
+    ## tf.string, 0 表示key的类型（这里是类别名），0 表示基于后面的换行符（delimiter="\n"）来分割
+    ## tf.int64, LINE_NUMBER 表示value的类型，LINE_NUMBER = -1 表示用从零开始的行号作为value
+
+    ## 而 tf.lookup.StaticHashTable 就是一个字典而已，找不到该键，就返回-1
     class_table = tf.lookup.StaticHashTable(tf.lookup.TextFileInitializer(
         class_file, tf.string, 0, tf.int64, LINE_NUMBER, delimiter="\n"), -1)
 
+    ## 获取符合 file_pattern 的所有file
     files = tf.data.Dataset.list_files(file_pattern)
+    ## files 中的每个文件都调用tf.data.TFRecordDataset，并将结果放到一起（相当于在map之后，将多个对象合并成一个对象）
     dataset = files.flat_map(tf.data.TFRecordDataset)
     return dataset.map(lambda x: parse_tfrecord(x, class_table, size))
 
@@ -137,7 +145,7 @@ def load_fake_dataset():
         [0.18494931, 0.03049111, 0.9435849,  0.96302897, 0],
         [0.01586703, 0.35938117, 0.17582396, 0.6069674, 56],
         [0.09158827, 0.48252046, 0.26967454, 0.6403017, 67]
-    ] + [[0, 0, 0, 0, 0]] * 5
+    ] + [[0, 0, 0, 0, 0]] * 5  ## 5 个 框 5 个类别
     y_train = tf.convert_to_tensor(labels, tf.float32)
     y_train = tf.expand_dims(y_train, axis=0)
 
