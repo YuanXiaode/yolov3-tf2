@@ -67,8 +67,8 @@ def main(_argv):
     train_dataset = train_dataset.shuffle(buffer_size=512)
     train_dataset = train_dataset.batch(FLAGS.batch_size)
     train_dataset = train_dataset.map(lambda x, y: (
-        dataset.transform_images(x, FLAGS.size),  ## resize + 浮点化
-        dataset.transform_targets(y, anchors, anchor_masks, FLAGS.size)))  ##
+        dataset.transform_images(x, FLAGS.size),  ## 对图像进行 resize + 浮点化
+        dataset.transform_targets(y, anchors, anchor_masks, FLAGS.size)))  ## 对lable进行
     train_dataset = train_dataset.prefetch(
         buffer_size=tf.data.experimental.AUTOTUNE)
 

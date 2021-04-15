@@ -3,10 +3,11 @@ from absl.flags import FLAGS
 
 @tf.function
 def transform_targets_for_output(y_true, grid_size, anchor_idxs):
-    # y_true: (N, boxes, (x1, y1, x2, y2, class, best_anchor))
+    # y_true: (None, num_boxes, (x1, y1, x2, y2, class, best_anchor))
+    # anchor_idxs : (3)
     N = tf.shape(y_true)[0]
 
-    # y_true_out: (N, grid, grid, anchors, [x1, y1, x2, y2, obj, class])
+    # y_true_out: (None, grid, grid, anchors, [x1, y1, x2, y2, obj, class])
     y_true_out = tf.zeros(
         (N, grid_size, grid_size, tf.shape(anchor_idxs)[0], 6))
 
@@ -15,25 +16,25 @@ def transform_targets_for_output(y_true, grid_size, anchor_idxs):
     indexes = tf.TensorArray(tf.int32, 1, dynamic_size=True)
     updates = tf.TensorArray(tf.float32, 1, dynamic_size=True)
     idx = 0
-    for i in tf.range(N):
-        for j in tf.range(tf.shape(y_true)[1]):
-            if tf.equal(y_true[i][j][2], 0):
+    for i in tf.range(N): ## N
+        for j in tf.range(tf.shape(y_true)[1]): ## num_boxes
+            if tf.equal(y_true[i][j][2], 0):  ## 去除空的box，前面提过，若样本的box少于yolo_max_boxes个，就补零
                 continue
             anchor_eq = tf.equal(
-                anchor_idxs, tf.cast(y_true[i][j][5], tf.int32))
+                anchor_idxs, tf.cast(y_true[i][j][5], tf.int32))  ## 找到最好的anchor, shape:(3,)
 
             if tf.reduce_any(anchor_eq):
                 box = y_true[i][j][0:4]
-                box_xy = (y_true[i][j][0:2] + y_true[i][j][2:4]) / 2
+                box_xy = (y_true[i][j][0:2] + y_true[i][j][2:4]) / 2  ## 角点->中心  shape:(2,)
 
                 anchor_idx = tf.cast(tf.where(anchor_eq), tf.int32)
                 grid_xy = tf.cast(box_xy // (1/grid_size), tf.int32)
 
                 # grid[y][x][anchor] = (tx, ty, bw, bh, obj, class)
                 indexes = indexes.write(
-                    idx, [i, grid_xy[1], grid_xy[0], anchor_idx[0][0]])
+                    idx, [i, grid_xy[1], grid_xy[0], anchor_idx[0][0]])  ##
                 updates = updates.write(
-                    idx, [box[0], box[1], box[2], box[3], 1, y_true[i][j][4]])
+                    idx, [box[0], box[1], box[2], box[3], 1, y_true[i][j][4]]) ## 保存了坐标和类别
                 idx += 1
 
     # tf.print(indexes.stack())
@@ -43,24 +44,30 @@ def transform_targets_for_output(y_true, grid_size, anchor_idxs):
         y_true_out, indexes.stack(), updates.stack())
 
 
+## 这里维度搞了半天，只要前面调用过 train_dataset.batch(FLAGS.batch_size)，这里的y_train维度就是(None，num_boxes，5)
+## 若没调用 train_dataset.batch， 维度就是 (num_boxes，5)
+## 上面之所以多了一个维度，应该是map函数将一个batch的数据并行处理了
 def transform_targets(y_train, anchors, anchor_masks, size):
     y_outs = []
     grid_size = size // 32
 
     # calculate anchor index for true boxes
     anchors = tf.cast(anchors, tf.float32)
-    anchor_area = anchors[..., 0] * anchors[..., 1]
-    box_wh = y_train[..., 2:4] - y_train[..., 0:2]
+    anchor_area = anchors[..., 0] * anchors[..., 1]  ## anchors 只有w,h  shape: (9,2)
+    box_wh = y_train[..., 2:4] - y_train[..., 0:2]  ## (None,num_boxes,2)
+
+    ## (None,num_boxes,9,2)
     box_wh = tf.tile(tf.expand_dims(box_wh, -2),
                      (1, 1, tf.shape(anchors)[0], 1))
     box_area = box_wh[..., 0] * box_wh[..., 1]
+    ## 这里是将box和anchors移到中心重合后计算的IOU
     intersection = tf.minimum(box_wh[..., 0], anchors[..., 0]) * \
         tf.minimum(box_wh[..., 1], anchors[..., 1])
-    iou = intersection / (box_area + anchor_area - intersection)
-    anchor_idx = tf.cast(tf.argmax(iou, axis=-1), tf.float32)
+    iou = intersection / (box_area + anchor_area - intersection) ## shape (None,num_boxes,9)
+    anchor_idx = tf.cast(tf.argmax(iou, axis=-1), tf.float32)  ## 从 9 个 anchors 中找到和 box 的 IOU 最大的那个
     anchor_idx = tf.expand_dims(anchor_idx, axis=-1)
 
-    y_train = tf.concat([y_train, anchor_idx], axis=-1)
+    y_train = tf.concat([y_train, anchor_idx], axis=-1)  ## shape:(None，num_boxes，6)
 
     for anchor_idxs in anchor_masks:
         y_outs.append(transform_targets_for_output(
@@ -104,16 +111,16 @@ def parse_tfrecord(tfrecord, class_table, size):
     x_train = tf.image.resize(x_train, (size, size))
 
     class_text = tf.sparse.to_dense(
-        x['image/object/class/text'], default_value='')
-    labels = tf.cast(class_table.lookup(class_text), tf.float32)
+        x['image/object/class/text'], default_value='')  ## 稀疏表示转为正常矩阵，形式应该是这样["cat", "hot dog", "...",...]维度为（N,）
+    labels = tf.cast(class_table.lookup(class_text), tf.float32)  ## 维度和class_text一样的,[15,52,-1,-1,-1...]
     y_train = tf.stack([tf.sparse.to_dense(x['image/object/bbox/xmin']),
                         tf.sparse.to_dense(x['image/object/bbox/ymin']),
                         tf.sparse.to_dense(x['image/object/bbox/xmax']),
                         tf.sparse.to_dense(x['image/object/bbox/ymax']),
-                        labels], axis=1)
+                        labels], axis=1)  ## 维度应该是 (N,5)
 
     paddings = [[0, FLAGS.yolo_max_boxes - tf.shape(y_train)[0]], [0, 0]]
-    y_train = tf.pad(y_train, paddings)
+    y_train = tf.pad(y_train, paddings)  ## 维度应该是 (FLAGS.yolo_max_boxes,5)
 
     return x_train, y_train
 
@@ -139,14 +146,19 @@ def load_tfrecord_dataset(file_pattern, class_file, size=416):
 def load_fake_dataset():
     x_train = tf.image.decode_jpeg(
         open('./data/girl.png', 'rb').read(), channels=3)
-    x_train = tf.expand_dims(x_train, axis=0)
 
     labels = [
-        [0.18494931, 0.03049111, 0.9435849,  0.96302897, 0],
+        [0.18494931, 0.03049111, 0.9435849,  0.96302897, 0], ## ->(x,y,x,y,label)
         [0.01586703, 0.35938117, 0.17582396, 0.6069674, 56],
         [0.09158827, 0.48252046, 0.26967454, 0.6403017, 67]
-    ] + [[0, 0, 0, 0, 0]] * 5  ## 5 个 框 5 个类别
+    ] + [[0, 0, 0, 0, 0]] * 5  ## (8,5)，其中后五个是无效数据
     y_train = tf.convert_to_tensor(labels, tf.float32)
-    y_train = tf.expand_dims(y_train, axis=0)
 
+    # from_tensor_slices 切片操作，要求第一个维度是样本数量
+    # 读取数据时，会在第一个维度切分，因此读取时的维度是 (size,size,3) 和 (8,5)
+    x_train = tf.expand_dims(x_train, axis=0)  ## (1,size,size,3)
+    y_train = tf.expand_dims(y_train, axis=0)  ## (1,8,5)
+
+
+    ## 输出形式和 parse_tfrecord 函数一样
     return tf.data.Dataset.from_tensor_slices((x_train, y_train))
