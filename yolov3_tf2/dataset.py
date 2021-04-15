@@ -1,5 +1,6 @@
 import tensorflow as tf
 from absl.flags import FLAGS
+from absl import logging
 
 @tf.function
 def transform_targets_for_output(y_true, grid_size, anchor_idxs):
@@ -21,18 +22,20 @@ def transform_targets_for_output(y_true, grid_size, anchor_idxs):
             if tf.equal(y_true[i][j][2], 0):  ## 去除空的box，前面提过，若样本的box少于yolo_max_boxes个，就补零
                 continue
             anchor_eq = tf.equal(
-                anchor_idxs, tf.cast(y_true[i][j][5], tf.int32))  ## 找到最好的anchor, shape:(3,)
-
+                anchor_idxs, tf.cast(y_true[i][j][5], tf.int32))  ## 找到最好的anchor, anchor_eq shape:(3,)
             if tf.reduce_any(anchor_eq):
                 box = y_true[i][j][0:4]
                 box_xy = (y_true[i][j][0:2] + y_true[i][j][2:4]) / 2  ## 角点->中心  shape:(2,)
 
+                ## tf.where(anchor_eq) 返回anchor_eq为True的index,若有n个True，则返回的shape为(n,1)
+                ## 其实这里anchor_eq只可能有一个True，所以返回的shape = (1,1)
                 anchor_idx = tf.cast(tf.where(anchor_eq), tf.int32)
+
                 grid_xy = tf.cast(box_xy // (1/grid_size), tf.int32)
 
                 # grid[y][x][anchor] = (tx, ty, bw, bh, obj, class)
                 indexes = indexes.write(
-                    idx, [i, grid_xy[1], grid_xy[0], anchor_idx[0][0]])  ##
+                    idx, [i, grid_xy[1], grid_xy[0], anchor_idx[0][0]])
                 updates = updates.write(
                     idx, [box[0], box[1], box[2], box[3], 1, y_true[i][j][4]]) ## 保存了坐标和类别
                 idx += 1
@@ -50,7 +53,6 @@ def transform_targets_for_output(y_true, grid_size, anchor_idxs):
 def transform_targets(y_train, anchors, anchor_masks, size):
     y_outs = []
     grid_size = size // 32
-
     # calculate anchor index for true boxes
     anchors = tf.cast(anchors, tf.float32)
     anchor_area = anchors[..., 0] * anchors[..., 1]  ## anchors 只有w,h  shape: (9,2)

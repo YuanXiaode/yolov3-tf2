@@ -33,7 +33,7 @@ python tools/voc2012.py \
   --output_file ./data/voc2012_train.tfrecord
 
 python tools/voc2012.py \
-  --data_dir './data/voc2012_raw/VOCdevkit/VOC2012' \
+  --data_dir './data/voc2012_raw/VOCdevkit/VOC2012' \     (YXD:这里路径不需要引号)
   --split val \
   --output_file ./data/voc2012_val.tfrecord
 ```

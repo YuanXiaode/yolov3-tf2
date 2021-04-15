@@ -15,7 +15,6 @@ flags.DEFINE_enum('split', 'train', [
 flags.DEFINE_string('output_file', './data/voc2012_train.tfrecord', 'outpot dataset')
 flags.DEFINE_string('classes', './data/voc2012.names', 'classes file')
 
-
 def build_example(annotation, class_map):
     img_path = os.path.join(
         FLAGS.data_dir, 'JPEGImages', annotation['filename'])
