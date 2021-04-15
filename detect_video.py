@@ -73,7 +73,8 @@ def main(_argv):
         t2 = time.time()
         times.append(t2-t1)
         times = times[-20:]
-
+        img = cv2.putText(img, "Time: {:.2f}ms".format(sum(times) / len(times) * 1000), (0, 30),
+            cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 2)
         img = draw_outputs(img, (boxes, scores, classes, nums), class_names)
         if FLAGS.output:
             out.write(img)
