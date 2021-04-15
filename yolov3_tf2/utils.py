@@ -107,9 +107,9 @@ def broadcast_iou(box_1, box_2):
 def draw_outputs(img, outputs, class_names):
     boxes, objectness, classes, nums = outputs
     boxes, objectness, classes, nums = boxes[0], objectness[0], classes[0], nums[0]
-    wh = np.flip(img.shape[0:2])
+    wh = np.flip(img.shape[0:2]) ## opencv的顺序是h,w，需要调换一下
     for i in range(nums):
-        x1y1 = tuple((np.array(boxes[i][0:2]) * wh).astype(np.int32))
+        x1y1 = tuple((np.array(boxes[i][0:2]) * wh).astype(np.int32))  ## 注意这里x1y1是归一化坐标，因此要乘图像尺寸
         x2y2 = tuple((np.array(boxes[i][2:4]) * wh).astype(np.int32))
         img = cv2.rectangle(img, x1y1, x2y2, (255, 0, 0), 2)
         img = cv2.putText(img, '{} {:.4f}'.format(

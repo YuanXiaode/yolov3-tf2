@@ -50,6 +50,7 @@ def main(_argv):
     img = transform_images(img, FLAGS.size)
 
     t1 = time.time()
+    # 注意这里包含了前向推理、解码和nms过程，其中坐标(x1,y1,x2,y2)是相对于原图的归一化坐标
     boxes, scores, classes, nums = yolo(img)
     t2 = time.time()
     logging.info('time: {}'.format(t2 - t1))

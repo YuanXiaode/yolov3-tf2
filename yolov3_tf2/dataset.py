@@ -70,7 +70,7 @@ def transform_targets(y_train, anchors, anchor_masks, size):
     return tuple(y_outs)
 
 
-def transform_images(x_train, size):
+def transform_images(x_train, size):  ## YunYang代码用的letterBox
     x_train = tf.image.resize(x_train, (size, size))
     x_train = x_train / 255
     return x_train

@@ -60,8 +60,7 @@ def main(_argv):
 
         if img is None:
             logging.warning("Empty Frame")
-            time.sleep(0.1)
-            continue
+            raise ValueError("No image!")
 
         img_in = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img_in = tf.expand_dims(img_in, 0)
@@ -69,14 +68,13 @@ def main(_argv):
 
         t1 = time.time()
         # boxes, scores, classes, nums = yolo.predict(img_in)
-        boxes, scores, classes, nums = yolo.predict_on_batch(img_in)  ## 这个比较快
+        # 注意这里包含了前向推理、解码和nms过程，其中坐标(x1,y1,x2,y2)是相对于原图的归一化坐标
+        boxes, scores, classes, nums = yolo.predict_on_batch(img_in)  ## predict_on_batch比较快
         t2 = time.time()
         times.append(t2-t1)
         times = times[-20:]
 
         img = draw_outputs(img, (boxes, scores, classes, nums), class_names)
-        img = cv2.putText(img, "Time: {:.2f}ms".format(sum(times)/len(times)*1000), (0, 30),
-                          cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 2)
         if FLAGS.output:
             out.write(img)
         cv2.imshow('output', img)
