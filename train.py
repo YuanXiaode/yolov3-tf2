@@ -68,7 +68,7 @@ def main(_argv):
     train_dataset = train_dataset.batch(FLAGS.batch_size)
     train_dataset = train_dataset.map(lambda x, y: (
         dataset.transform_images(x, FLAGS.size),  ## 对图像进行 resize + 浮点化
-        dataset.transform_targets(y, anchors, anchor_masks, FLAGS.size)))  ## 对lable进行
+        dataset.transform_targets(y, anchors, anchor_masks, FLAGS.size)))  ## 对lable进行处理
     train_dataset = train_dataset.prefetch(
         buffer_size=tf.data.experimental.AUTOTUNE)
 
@@ -85,6 +85,9 @@ def main(_argv):
     # Configure the model for transfer learning
     if FLAGS.transfer == 'none':
         pass  # Nothing to do
+    ## 迁移模型（类别数不同）
+    ## 'darknet'：只加载并冻结darknet部分，训练其余部分
+    ## 'no_output'：只训练检测头的后两个卷积，其余部分加载预训练模型，且不可训练
     elif FLAGS.transfer in ['darknet', 'no_output']:
         # Darknet transfer is a special case that works
         # with incompatible number of classes
@@ -110,34 +113,34 @@ def main(_argv):
                         l.name).get_weights())
                     freeze_all(l)
 
-    else:
+    else:## 预训练模型和当前模型类别数相同
         # All other transfer require matching classes
         model.load_weights(FLAGS.weights)
-        if FLAGS.transfer == 'fine_tune':
+        if FLAGS.transfer == 'fine_tune':  ## 不训练 yolo_darknet
             # freeze darknet and fine tune other layers
             darknet = model.get_layer('yolo_darknet')
             freeze_all(darknet)
-        elif FLAGS.transfer == 'frozen':
+        elif FLAGS.transfer == 'frozen':  ## 全都不训练 = = 不知道干啥用
             # freeze everything
             freeze_all(model)
 
     optimizer = tf.keras.optimizers.Adam(lr=FLAGS.learning_rate)
     loss = [YoloLoss(anchors[mask], classes=FLAGS.num_classes)
-            for mask in anchor_masks]
+            for mask in anchor_masks] ## 按尺度计算loss
 
     if FLAGS.mode == 'eager_tf':
         # Eager mode is great for debugging
         # Non eager graph mode is recommended for real training
-        avg_loss = tf.keras.metrics.Mean('loss', dtype=tf.float32)
+        avg_loss = tf.keras.metrics.Mean('loss', dtype=tf.float32)  ## 用于统计一个batch的平均损失
         avg_val_loss = tf.keras.metrics.Mean('val_loss', dtype=tf.float32)
 
         for epoch in range(1, FLAGS.epochs + 1):
             for batch, (images, labels) in enumerate(train_dataset):
                 with tf.GradientTape() as tape:
-                    outputs = model(images, training=True)
+                    outputs = model(images, training=True)  # (output_0, output_1, output_2)：分别是大中小三个尺度
                     regularization_loss = tf.reduce_sum(model.losses)
                     pred_loss = []
-                    for output, label, loss_fn in zip(outputs, labels, loss):
+                    for output, label, loss_fn in zip(outputs, labels, loss):  ## 三个尺度的loss分别计算
                         pred_loss.append(loss_fn(label, output))
                     total_loss = tf.reduce_sum(pred_loss) + regularization_loss
 
@@ -177,7 +180,7 @@ def main(_argv):
                       run_eagerly=(FLAGS.mode == 'eager_fit'))
 
         callbacks = [
-            ReduceLROnPlateau(verbose=1),
+            ReduceLROnPlateau(verbose=1), ## 训练时自动减小学习率， verbose=1 表示打印学习率更新信息
             EarlyStopping(patience=3, verbose=1),
             ModelCheckpoint('checkpoints/yolov3_train_{epoch}.tf',
                             verbose=1, save_weights_only=True),

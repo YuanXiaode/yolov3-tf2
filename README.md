@@ -156,8 +156,8 @@ Numbers are obtained with rough calculations from `detect_video.py`
 
 | Detection   | 416x416 |
 |-------------|---------|
-| YoloV3 predict_on_batch     | 29-32ms    | 
-| YoloV3 predict_on_batch + TensorRT     | 22-28ms    | 
+| YoloV3 predict_on_batch     | 29-32ms    |
+| YoloV3 predict_on_batch + TensorRT     | 22-28ms    |
 
 
 Darknet version of YoloV3 at 416x416 takes 29ms on Titan X.
@@ -249,7 +249,7 @@ if for some reason you would like to have more boxes you can use the `--yolo_max
 
 Many people including me have succeeded in training, so the code definitely works
 @LongxingTan in https://github.com/zzh8829/yolov3-tf2/issues/128 provided some of his insights summarized here:
-  
+
   1. For nan loss, try to make learning rate smaller
   2. Double check the format of your input data. Data input labelled by vott and labelImg is different. so make sure the input box is the right, and check carefully the format is `x1/width,y1/height,x2/width,y2/height` and **NOT** x1,y1,x2,y2, or x,y,w,h
 

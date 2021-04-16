@@ -5,7 +5,7 @@ from absl import logging
 @tf.function
 def transform_targets_for_output(y_true, grid_size, anchor_idxs):
     # y_true: (None, num_boxes, (x1, y1, x2, y2, class, best_anchor))
-    # anchor_idxs : (3)
+    # anchor_idxs : (3,)
     N = tf.shape(y_true)[0]
 
     # y_true_out: (None, grid, grid, anchors, [x1, y1, x2, y2, obj, class])
@@ -35,14 +35,13 @@ def transform_targets_for_output(y_true, grid_size, anchor_idxs):
 
                 # grid[y][x][anchor] = (tx, ty, bw, bh, obj, class)
                 indexes = indexes.write(
-                    idx, [i, grid_xy[1], grid_xy[0], anchor_idx[0][0]])
+                    idx, [i, grid_xy[1], grid_xy[0], anchor_idx[0][0]])        ## 放置label的位置
                 updates = updates.write(
-                    idx, [box[0], box[1], box[2], box[3], 1, y_true[i][j][4]]) ## 保存了坐标和类别
+                    idx, [box[0], box[1], box[2], box[3], 1, y_true[i][j][4]]) ## 放置label的内容:位置+置信度1+类别  YunYang的代码对类别标签进行了平滑
                 idx += 1
 
-    # tf.print(indexes.stack())
-    # tf.print(updates.stack())
-
+    # tf.print(indexes.stack())  ## indexes.stack() shape:(uncertain,4)
+    # tf.print(updates.stack())  ## indexes.stack() shape:(uncertain,6)
     return tf.tensor_scatter_nd_update(
         y_true_out, indexes.stack(), updates.stack())
 
@@ -56,7 +55,7 @@ def transform_targets(y_train, anchors, anchor_masks, size):
     # calculate anchor index for true boxes
     anchors = tf.cast(anchors, tf.float32)
     anchor_area = anchors[..., 0] * anchors[..., 1]  ## anchors 只有w,h  shape: (9,2)
-    box_wh = y_train[..., 2:4] - y_train[..., 0:2]  ## (None,num_boxes,2)
+    box_wh = y_train[..., 2:4] - y_train[..., 0:2]   ## (None,num_boxes,2)
 
     ## (None,num_boxes,9,2)
     box_wh = tf.tile(tf.expand_dims(box_wh, -2),
@@ -66,12 +65,16 @@ def transform_targets(y_train, anchors, anchor_masks, size):
     intersection = tf.minimum(box_wh[..., 0], anchors[..., 0]) * \
         tf.minimum(box_wh[..., 1], anchors[..., 1])
     iou = intersection / (box_area + anchor_area - intersection) ## shape (None,num_boxes,9)
-    anchor_idx = tf.cast(tf.argmax(iou, axis=-1), tf.float32)  ## 从 9 个 anchors 中找到和 box 的 IOU 最大的那个
+    anchor_idx = tf.cast(tf.argmax(iou, axis=-1), tf.float32)  ## 从 9 个 anchors 中找到和 box 的 IOU 最大的那个作为正例
     anchor_idx = tf.expand_dims(anchor_idx, axis=-1)
 
     y_train = tf.concat([y_train, anchor_idx], axis=-1)  ## shape:(None，num_boxes，6)
 
-    for anchor_idxs in anchor_masks:
+    # 下面的循环和transform_targets_for_output写的不好
+    # 因为每个尺度都要对y_train的两个维度进行遍历，且很多都是白费功夫
+    # 由anchor_idx完全就可以确定和GT最匹配的anchor在哪个尺度的哪个框上，然后再对y_train遍历一次即可完成label的制作
+
+    for anchor_idxs in anchor_masks:  ## 大，中，小三个尺度
         y_outs.append(transform_targets_for_output(
             y_train, grid_size, anchor_idxs))
         grid_size *= 2
@@ -106,16 +109,17 @@ IMAGE_FEATURE_MAP = {
     # 'image/object/view': tf.io.VarLenFeature(tf.string),
 }
 
-
+## 这些关键词和voc2012.py中对应
 def parse_tfrecord(tfrecord, class_table, size):
     x = tf.io.parse_single_example(tfrecord, IMAGE_FEATURE_MAP)
     x_train = tf.image.decode_jpeg(x['image/encoded'], channels=3)
     x_train = tf.image.resize(x_train, (size, size))
 
+    ## 注意这玩意和tf1.x的 sparse_to_dense不一样
     class_text = tf.sparse.to_dense(
         x['image/object/class/text'], default_value='')  ## 稀疏表示转为正常矩阵，形式应该是这样["cat", "hot dog", "...",...]维度为（N,）
     labels = tf.cast(class_table.lookup(class_text), tf.float32)  ## 维度和class_text一样的,[15,52,-1,-1,-1...]
-    y_train = tf.stack([tf.sparse.to_dense(x['image/object/bbox/xmin']),
+    y_train = tf.stack([tf.sparse.to_dense(x['image/object/bbox/xmin']),  ## 这里的是归一化坐标
                         tf.sparse.to_dense(x['image/object/bbox/ymin']),
                         tf.sparse.to_dense(x['image/object/bbox/xmax']),
                         tf.sparse.to_dense(x['image/object/bbox/ymax']),
@@ -132,7 +136,7 @@ def load_tfrecord_dataset(file_pattern, class_file, size=416):
     ## tf.lookup.TextFileInitializer 用法：
     ## class_file 表示读取的文件
     ## tf.string, 0 表示key的类型（这里是类别名），0 表示基于后面的换行符（delimiter="\n"）来分割
-    ## tf.int64, LINE_NUMBER 表示value的类型，LINE_NUMBER = -1 表示用从零开始的行号作为value
+    ## tf.int64 表示value的类型，LINE_NUMBER = -1 表示用从零开始的行号作为value
 
     ## 而 tf.lookup.StaticHashTable 就是一个字典而已，找不到该键，就返回-1
     class_table = tf.lookup.StaticHashTable(tf.lookup.TextFileInitializer(

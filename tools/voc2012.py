@@ -38,7 +38,7 @@ def build_example(annotation, class_map):
             difficult = bool(int(obj['difficult']))
             difficult_obj.append(int(difficult))
 
-            xmin.append(float(obj['bndbox']['xmin']) / width)
+            xmin.append(float(obj['bndbox']['xmin']) / width)  ## 归一化的坐标
             ymin.append(float(obj['bndbox']['ymin']) / height)
             xmax.append(float(obj['bndbox']['xmax']) / width)
             ymax.append(float(obj['bndbox']['ymax']) / height)
@@ -46,7 +46,7 @@ def build_example(annotation, class_map):
             classes.append(class_map[obj['name']])
             truncated.append(int(obj['truncated']))
             views.append(obj['pose'].encode('utf8'))
-
+    # 原始数据可能是用稀疏矩阵来存储的
     example = tf.train.Example(features=tf.train.Features(feature={
         'image/height': tf.train.Feature(int64_list=tf.train.Int64List(value=[height])),
         'image/width': tf.train.Feature(int64_list=tf.train.Int64List(value=[width])),

@@ -27,7 +27,7 @@ flags.DEFINE_integer('yolo_max_boxes', 100,
 flags.DEFINE_float('yolo_iou_threshold', 0.5, 'iou threshold')
 flags.DEFINE_float('yolo_score_threshold', 0.5, 'score threshold')
 
-## coco数据集聚类出来的anhors
+## coco数据集聚类出来的anhors（注意是归一化数据）
 yolo_anchors = np.array([(10, 13), (16, 30), (33, 23), (30, 61), (62, 45),
                          (59, 119), (116, 90), (156, 198), (373, 326)],
                         np.float32) / 416
@@ -47,7 +47,7 @@ def DarknetConv(x, filters, size, strides=1, batch_norm=True):
         padding = 'valid'
     x = Conv2D(filters=filters, kernel_size=size,
                strides=strides, padding=padding,
-               use_bias=not batch_norm, kernel_regularizer=l2(0.0005))(x)
+               use_bias=not batch_norm, kernel_regularizer=l2(0.0005))(x)  ## 用了正则
     if batch_norm:
         x = BatchNormalization()(x)
         x = LeakyReLU(alpha=0.1)(x)
@@ -144,6 +144,7 @@ def YoloOutput(filters, anchors, classes, name=None):  ## yolo的输出节点，
         x = DarknetConv(x, filters * 2, 3)
         x = DarknetConv(x, anchors * (classes + 5), 1, batch_norm=False)
         x = Lambda(lambda x: tf.reshape(x, (-1, tf.shape(x)[1], tf.shape(x)[2],
+        x = Lambda(lambda x: tf.reshape(x, (-1, tf.shape(x)[1], tf.shape(x)[2],
                                             anchors, classes + 5)))(x)
         return tf.keras.Model(inputs, x, name=name)(x_in)
     return yolo_output
@@ -163,6 +164,7 @@ def _meshgrid(n_a, n_b):  ## 写这玩意干啥，tf.meshgrid一样功能
     ]
 
 # 取sigmoid，坐标解码到输入图（注意还不是原图，输入图=litterBox(原图)）
+# 输出的bbox是解码后的坐标，用于后面和真实box计算iou；pred_box是未解码的值，用于和后面反解码的真实box计算loss
 def yolo_boxes(pred, anchors, classes):
     # pred: (batch_size, grid, grid, anchors, (x, y, w, h, obj, ...classes))
     grid_size = tf.shape(pred)[1:3]
@@ -180,12 +182,11 @@ def yolo_boxes(pred, anchors, classes):
 
     ## 注意这里解码进行了归一化（YunYang的代码是直接解成了input上的实际坐标）
     box_xy = (box_xy + tf.cast(grid, tf.float32)) / tf.cast(grid_size, tf.float32)
-    box_wh = tf.exp(box_wh) * anchors
+    box_wh = tf.exp(box_wh) * anchors  ## anchors 也是归一化的
 
     box_x1y1 = box_xy - box_wh / 2
     box_x2y2 = box_xy + box_wh / 2
     bbox = tf.concat([box_x1y1, box_x2y2], axis=-1)  ## (x,y,w,h) ->(x1,y1,x2,y2)
-
     return bbox, objectness, class_probs, pred_box
 
 
@@ -295,9 +296,10 @@ def YoloV3Tiny(size=None, channels=3, anchors=yolo_tiny_anchors,
 def YoloLoss(anchors, classes=80, ignore_thresh=0.5):
     def yolo_loss(y_true, y_pred):
         # 1. transform all pred outputs
+
         # y_pred: (batch_size, grid, grid, anchors, (x, y, w, h, obj, ...cls))
-        # 编码后 pred_xywh (sigmoid(x),sigmoid(y),w,h)
-        # pred_obj = sigmoid(y_pred[...,4]) , classes = sigmoid(y_pred[...,5:])
+        # pred_xywh (sigmoid(x),sigmoid(y),w,h) pred_obj = sigmoid(y_pred[...,4]) , pred_class = sigmoid(y_pred[...,5:])
+        # pred_box 是 pred_xywh 解码过后的，表示预测的归一化坐标
         pred_box, pred_obj, pred_class, pred_xywh = yolo_boxes(
             y_pred, anchors, classes)
         pred_xy = pred_xywh[..., 0:2]
@@ -314,11 +316,13 @@ def YoloLoss(anchors, classes=80, ignore_thresh=0.5):
         # give higher weights to small boxes
         box_loss_scale = 2 - true_wh[..., 0] * true_wh[..., 1]
 
-        # 3. inverting the pred box equations  这里是将true_xy编码，也就损失公式中的t
+        # 3. inverting the pred box equations  这里是将true_xy反编码，也就损失公式中的t
         grid_size = tf.shape(y_true)[1]
-        grid = tf.meshgrid(tf.range(grid_size), tf.range(grid_size))  ## oh，知道这个函数还自己定义 _meshgrid做啥
+        grid = tf.meshgrid(tf.range(grid_size), tf.range(grid_size))  ## oh，知道这个函数还自己定义 _meshgrid 做啥
         grid = tf.expand_dims(tf.stack(grid, axis=-1), axis=2)
-        true_xy = true_xy * tf.cast(grid_size, tf.float32) - tf.cast(grid, tf.float32) ## 注意到true_xy是归一化的
+
+        ## true_xy 是归一化的，需要先乘尺度
+        true_xy = true_xy * tf.cast(grid_size, tf.float32) - tf.cast(grid, tf.float32) #
         true_wh = tf.math.log(true_wh / anchors)
         true_wh = tf.where(tf.math.is_inf(true_wh),
                            tf.zeros_like(true_wh), true_wh)
@@ -335,7 +339,9 @@ def YoloLoss(anchors, classes=80, ignore_thresh=0.5):
             tf.float32)
         ignore_mask = tf.cast(best_iou < ignore_thresh, tf.float32)  ## 这个名字取的不好，这个应该是背景，要算Loss的
 
-        # 5. calculate all losses   这里就是标准的YOLOV3的损失函数，YunYang的代码用GIOU替代了坐标损失
+        # 5. calculate all losses   YunYang的代码用GIOU替代了坐标损失
+        # 这里x,y的处理和论文有些许不一样，论文中是用GT反向编码和输出值计算loss，这里注意到是用GT反向编码和输出值的sigmoid来计算loss
+        # （pred_xy指的是输出x,y坐标的sigmoid）
         xy_loss = obj_mask * box_loss_scale * \
             tf.reduce_sum(tf.square(true_xy - pred_xy), axis=-1)
         wh_loss = obj_mask * box_loss_scale * \
